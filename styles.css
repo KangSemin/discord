@@ -267,7 +267,7 @@ button:hover {
 .timestamp {
     color: #b9bbbe;
     font-size: 13px;
-    margin-left: auto;
+    margin-left: 3px;
     /* 타임스탬프를 오른쪽 끝에 위치시킴 */
 }
 
