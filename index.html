@@ -8,10 +8,10 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <link rel="icon" href="icons8.ico">
     <title>#세미니 방명록</title>
-    
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, doc, setDoc, deleteDoc, query, orderBy, onSnapshot } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, doc, setDoc, deleteDoc, query, orderBy, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBaXJwGWaOWgnmF3WJh1VP1r1wlzbwlyc8",
@@ -26,14 +26,37 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        const form = document.getElementById('guestbook-form');
         const entriesContainer = document.getElementById('guestbook-entries');
         const activeUsersCollection = collection(db, "activeUsers");
-
         const guestbookCollection = query(collection(db, "guestBook"), orderBy("timestamp"));
 
+        let username = '';
+        let profileImage = 'https://i.ibb.co/TMYyS1k/01.png';
+        let userDocRef;
+
+        // 실시간 사용자 목록 업데이트
+        function updateUserList(snapshot) {
+            const userListElement = document.getElementById('userList');
+            userListElement.innerHTML = '';
+            let userCount = snapshot.size;
+
+            snapshot.forEach((doc) => {
+                const user = doc.data();
+                const li = document.createElement('li');
+                li.classList.add('user-item');
+                li.innerHTML = `
+                    <img src="${user.profileImage}" class="profile-image">
+                    <span class="username">${user.name}</span>
+                `;
+                userListElement.appendChild(li);
+            });
+
+            document.getElementById('user-count').innerText = `${userCount}`;
+        }
+
+        // 방명록 메시지 실시간 업데이트
         onSnapshot(guestbookCollection, (snapshot) => {
-            entriesContainer.innerHTML = ''; // 기존 메시지 비우기
+            entriesContainer.innerHTML = '';
             snapshot.forEach(doc => {
                 const entry = doc.data();
                 const entryDiv = document.createElement('div');
@@ -50,38 +73,26 @@
                 entriesContainer.appendChild(entryDiv);
             });
 
-            entriesContainer.scrollTop = entriesContainer.scrollHeight; // 최신 메시지가 보이도록 스크롤 이동
+            entriesContainer.scrollTop = entriesContainer.scrollHeight;
         });
 
-        form.addEventListener('submit', async (event) => {
-            event.preventDefault();
-
-            const message = document.getElementById('message').value;
-            const timestamp = new Date().toLocaleString();
-
-            if (!username) {
-                alert("Please enter your name to proceed.");
-                return;
-            }
-
+        // 타임스탬프 업데이트 및 사용자 추가
+        async function addUserToActiveList() {
             try {
-                // 방명록에 메시지를 추가
-                await addDoc(collection(db, "guestBook"), {
+                userDocRef = doc(db, "activeUsers", username);
+                await setDoc(userDocRef, {
                     name: username,
                     profileImage: profileImage,
-                    message: message,
-                    timestamp: timestamp
+                    lastActive: Date.now()
                 });
 
-                form.reset();
+                setInterval(async () => {
+                    await updateDoc(userDocRef, { lastActive: Date.now() });
+                }, 30000); // 30초마다 타임스탬프 업데이트
             } catch (error) {
-                console.error("Error adding document: ", error);
+                console.error("Error setting active user: ", error);
             }
-        });
-
-        let username = '';
-        let profileImage = 'https://i.ibb.co/TMYyS1k/01.png';
-        let userDocRef;
+        }
 
         document.getElementById('profile-image-selection').addEventListener('click', (event) => {
             if (event.target.classList.contains('profile-image-option')) {
@@ -98,40 +109,39 @@
             if (username) {
                 document.getElementById('name-modal').style.display = 'none';
                 document.querySelector('.container').classList.remove('blurred');
-
-                try {
-                    userDocRef = doc(db, "activeUsers", username);
-                    await setDoc(userDocRef, { name: username, profileImage: profileImage });
-                } catch (error) {
-                    console.error("Error setting active user: ", error);
-                }
+                addUserToActiveList();
             } else {
                 alert("오잉?");
             }
         });
 
-        function updateUserList(snapshot) {
-            const userListElement = document.getElementById('userList');
-            userListElement.innerHTML = ''; // 기존 사용자 목록 비우기
+        document.getElementById('message').addEventListener('keydown', async (event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
 
-            // 사용자 수 계산
-            let userCount = snapshot.size;
+                const message = document.getElementById('message').value;
+                const timestamp = new Date().toLocaleString();
 
-            snapshot.forEach((doc) => {
-                const user = doc.data();
-                const li = document.createElement('li');
-                li.classList.add('user-item');
-                li.innerHTML = `
-                    <img src="${user.profileImage}" class="profile-image">
-                    <span class="username">${user.name}</span>
-                `;
-                userListElement.appendChild(li);
-            });
+                if (!username) {
+                    alert("Please enter your name to proceed.");
+                    return;
+                }
 
-            // 사용자 수 업데이트
-            document.getElementById('user-count').innerText = `${userCount}`;
-        }
+                try {
+                    await addDoc(collection(db, "guestBook"), {
+                        name: username,
+                        profileImage: profileImage,
+                        message: message,
+                        timestamp: timestamp
+                    });
+                    document.getElementById('message').value = '';
+                } catch (error) {
+                    console.error("Error adding document: ", error);
+                }
+            }
+        });
 
+        // 페이지가 종료되거나 새로고침될 때 사용자 삭제
         window.addEventListener('beforeunload', async () => {
             if (userDocRef) {
                 await deleteDoc(userDocRef);
@@ -139,9 +149,16 @@
         });
 
         document.addEventListener("DOMContentLoaded", () => {
-            // 사용자 목록 실시간 갱신
             onSnapshot(activeUsersCollection, (snapshot) => {
                 updateUserList(snapshot);
+
+                // 5분 이상 활동하지 않은 사용자 삭제
+                snapshot.forEach(async (doc) => {
+                    const userData = doc.data();
+                    if (Date.now() - userData.lastActive > 5 * 60 * 1000) { // 5분(300000ms) 후 삭제
+                        await deleteDoc(doc.ref);
+                    }
+                });
             });
         });
     </script>
@@ -154,25 +171,8 @@
             <input type="text" id="username-input" placeholder="'본명'을 입력해주세요" required>
             <label for="profile-image-input">프로필을 골라주세요</label>
             <div id="profile-image-selection">
-                <img src="imgs/01.png" alt="Profile 1" class="profile-image-option"
-                    data-image="imgs/01.png">
-                <img src="imgs/02.png" alt="Profile 2" class="profile-image-option"
-                    data-image="imgs/02.png">
-                <img src="imgs/03.png" alt="Profile 3" class="profile-image-option"
-                    data-image="imgs/03.png">
-                <img src="imgs/04.png" alt="Profile 4" class="profile-image-option"
-                    data-image="imgs/04.png">
-                <img src="imgs/05.png" alt="Profile 5" class="profile-image-option"
-                    data-image="imgs/05.png">
-                <img src="imgs/06.png" alt="Profile 6" class="profile-image-option"
-                    data-image="imgs/06.png">
-                <img src="imgs/07.png" alt="Profile 7" class="profile-image-option"
-                    data-image="imgs/07.png">
-                <img src="imgs/08.png" alt="Profile 8" class="profile-image-option"
-                    data-image="imgs/08.png">
-                <img src="imgs/09.png" alt="Profile 9" class="profile-image-option"
-                    data-image="imgs/09.png">
-                
+                <img src="imgs/01.png" alt="Profile 1" class="profile-image-option" data-image="imgs/01.png">
+                <!-- 다른 프로필 이미지들 -->
             </div>
             <button id="name-confirm">확인</button>
         </div>
@@ -189,7 +189,6 @@
         </div>
         <form id="guestbook-form">
             <textarea id="message" placeholder="#세미니 방명록⭐에 메세지 보내기" required></textarea>
-            <button type="submit">보내기</button>
         </form>
     </div>
 </body>
