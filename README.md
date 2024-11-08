@@ -1,1 +1,1 @@
-# KangSemin.github.io
+# discord
